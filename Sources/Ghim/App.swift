@@ -11,6 +11,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         _ = Store.shared
+        Store.shared.observeExternalChanges()
 
         installEditMenu()
         PanelController.shared.setup()

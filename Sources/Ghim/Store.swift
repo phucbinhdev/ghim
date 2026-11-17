@@ -5,7 +5,8 @@ import SwiftUI
 final class Store: ObservableObject {
     static let shared = Store()
 
-    @Published var data: AppData { didSet { scheduleSave() } }
+    @Published var data: AppData { didSet { if !applyingExternal { scheduleSave() } } }
+    private var applyingExternal = false
 
     let folderURL: URL
     let fileURL: URL
@@ -13,12 +14,7 @@ final class Store: ObservableObject {
     private var saveWork: DispatchWorkItem?
 
     init() {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        if let custom = ProcessInfo.processInfo.environment["GHIM_DATA_DIR"] {
-            folderURL = URL(fileURLWithPath: custom, isDirectory: true) // used by tests / snapshots
-        } else {
-            folderURL = base.appendingPathComponent("Ghim", isDirectory: true)
-        }
+        folderURL = GhimPaths.folder
         try? FileManager.default.createDirectory(at: folderURL, withIntermediateDirectories: true)
         fileURL = folderURL.appendingPathComponent("data.json")
         imagesURL = folderURL.appendingPathComponent("images", isDirectory: true)
@@ -56,10 +52,8 @@ final class Store: ObservableObject {
         saveWork?.cancel()
         saveWork = nil
         do {
-            let enc = JSONEncoder()
-            enc.outputFormatting = [.prettyPrinted, .sortedKeys]
-            enc.dateEncodingStrategy = .iso8601
-            try enc.encode(data).write(to: fileURL, options: .atomic)
+            let snapshot = data
+            try DataFile.withLock { try DataFile.write(snapshot) }
         } catch {
             NSLog("Ghim: save failed \(error)")
         }
@@ -71,29 +65,37 @@ final class Store: ObservableObject {
     /// Called on launch, every minute and on wake. Re-opens recurring tasks
     /// and clears yesterday's finished "today" flags.
     func rollover() {
-        let today = Day.key()
-        guard data.lastDay != today else { return }
-        let now = Date()
-        let start = Day.startOfToday
         var d = data
-        for i in d.tasks.indices {
-            var t = d.tasks[i]
-            let applies = t.repeatRule.applies(on: now, anchor: t.createdAt, lastDone: t.completedAt)
-            if t.done, let c = t.completedAt, c < start {
-                if applies {
-                    t.done = false
-                    t.completedAt = nil
-                    t.isToday = true
-                } else if t.isToday {
-                    t.isToday = false
-                }
-            } else if !t.done && applies {
-                t.isToday = true
+        if d.rollover() { data = d }
+    }
+
+    // MARK: External changes (MCP / AI)
+
+    /// The `--mcp` process edits data.json directly; reload when it says so,
+    /// and flush pending edits when it is about to read.
+    func observeExternalChanges() {
+        let dnc = DistributedNotificationCenter.default()
+        let me = folderURL.path
+        dnc.addObserver(forName: .ghimFlush, object: me, queue: .main) { _ in
+            MainActor.assumeIsolated {
+                let s = Store.shared
+                if s.saveWork != nil { s.saveNow() }
             }
-            d.tasks[i] = t
         }
-        d.lastDay = today
-        data = d
+        dnc.addObserver(forName: .ghimDataChanged, object: me, queue: .main) { _ in
+            MainActor.assumeIsolated { Store.shared.reloadFromDisk() }
+        }
+    }
+
+    func reloadFromDisk() {
+        guard let raw = try? Data(contentsOf: fileURL),
+              let fresh = try? DataFile.decode(raw), !fresh.categories.isEmpty else { return }
+        saveWork?.cancel()
+        saveWork = nil
+        applyingExternal = true
+        data = fresh
+        applyingExternal = false
+        Notifier.reschedule(tasks: data.tasks)
     }
 
     // MARK: Lookups
@@ -125,11 +127,7 @@ final class Store: ObservableObject {
 
     // MARK: Today
 
-    func inToday(_ t: TaskItem) -> Bool {
-        if t.isToday { return true }
-        if let d = t.due, d < Day.endOfToday { return true }
-        return false
-    }
+    func inToday(_ t: TaskItem) -> Bool { AppData.inToday(t) }
 
     var todayOpen: [TaskItem] {
         data.tasks.filter { !$0.done && inToday($0) }.sorted { a, b in
@@ -172,19 +170,7 @@ final class Store: ObservableObject {
     var completedToday: Int { data.completions[Day.key()] ?? 0 }
     var focusToday: Int { data.focusLog[Day.key()] ?? 0 }
 
-    var streak: Int {
-        let cal = Calendar.current
-        var day = Date()
-        if (data.completions[Day.key(day)] ?? 0) == 0 {
-            day = cal.date(byAdding: .day, value: -1, to: day)!
-        }
-        var n = 0
-        while (data.completions[Day.key(day)] ?? 0) > 0 {
-            n += 1
-            day = cal.date(byAdding: .day, value: -1, to: day)!
-        }
-        return n
-    }
+    var streak: Int { data.streak }
 
     // MARK: Task mutations
 
@@ -210,19 +196,7 @@ final class Store: ObservableObject {
     func toggle(_ id: UUID) {
         guard let i = idx(id) else { return }
         var d = data
-        var t = d.tasks[i]
-        let key = Day.key()
-        t.done.toggle()
-        if t.done {
-            t.completedAt = Date()
-            d.completions[key, default: 0] += 1
-        } else {
-            if let c = t.completedAt, Day.key(c) == key {
-                d.completions[key] = max(0, (d.completions[key] ?? 1) - 1)
-            }
-            t.completedAt = nil
-        }
-        d.tasks[i] = t
+        d.setDone(id, !d.tasks[i].done)
         data = d
     }
 

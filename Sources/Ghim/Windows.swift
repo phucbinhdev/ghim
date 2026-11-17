@@ -393,6 +393,7 @@ private struct HelpSettings: View {
                     ("/daily /weekdays /weekly", "Lặp lại hằng ngày / T2–T6 / hằng tuần"),
                     ("*", "Đưa vào Hôm nay"),
                 ])
+                AIConnectSection()
             }
             .padding(4)
         }
@@ -407,6 +408,53 @@ private struct HelpSettings: View {
                     Text(v).foregroundStyle(.secondary)
                 }
             }
+        }
+    }
+}
+
+/// Shows how to plug Ghim into an AI client through its built-in MCP server (`Ghim --mcp`).
+private struct AIConnectSection: View {
+    @State private var copied: String?
+    private var exe: String { Bundle.main.executablePath ?? "/Applications/Ghim.app/Contents/MacOS/Ghim" }
+    private var claudeCode: String { "claude mcp add ghim -s user -- \"\(exe)\" --mcp" }
+    private var desktopJSON: String {
+        """
+        "ghim": { "command": "\(exe)", "args": ["--mcp"] }
+        """
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Kết nối AI (MCP)").font(.headline)
+            Text("Ghim có sẵn MCP server để Claude / AI khác xem và sửa việc, ghi chú của bạn. Thay đổi hiện ngay trên dải tab.")
+                .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            snippet("Claude Code (Terminal)", claudeCode)
+            snippet("Claude Desktop / Cursor… (mục mcpServers)", desktopJSON)
+            if !exe.hasPrefix("/Applications/") {
+                Label("Nên kéo Ghim.app vào Applications trước để đường dẫn không đổi.", systemImage: "exclamationmark.triangle")
+                    .font(.caption).foregroundStyle(.orange)
+            }
+        }
+    }
+
+    private func snippet(_ title: String, _ text: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text(title).font(.subheadline.weight(.medium))
+                Spacer()
+                Button(copied == title ? "Đã chép ✓" : "Chép") {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(text, forType: .string)
+                    copied = title
+                }
+                .controlSize(.small)
+            }
+            Text(text)
+                .font(.system(.caption, design: .monospaced))
+                .textSelection(.enabled)
+                .padding(8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(RoundedRectangle(cornerRadius: 6).fill(Color.primary.opacity(0.06)))
         }
     }
 }

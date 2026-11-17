@@ -36,6 +36,32 @@ cp -R build/Ghim.app /Applications/
 | `/daily` `/weekdays` `/weekly` | lặp lại |
 | `*` | đưa vào Hôm nay |
 
+## Kết nối AI (MCP)
+Ghim có sẵn một MCP server: chạy `Ghim --mcp` là Claude (hoặc AI nào hỗ trợ MCP) xem và sửa được việc, ghi chú của bạn. Thay đổi hiện ngay trên dải tab.
+
+**Claude Code**
+```bash
+claude mcp add ghim -s user -- /Applications/Ghim.app/Contents/MacOS/Ghim --mcp
+```
+
+**Claude Desktop, Cursor…** — thêm vào mục `mcpServers` trong file cấu hình:
+```json
+"ghim": { "command": "/Applications/Ghim.app/Contents/MacOS/Ghim", "args": ["--mcp"] }
+```
+
+Lệnh chép sẵn cũng có trong Cài đặt → Phím tắt → Kết nối AI.
+
+| Tool | Làm gì |
+|---|---|
+| `get_overview` | Kế hoạch hôm nay, việc quá hạn, các tab, streak |
+| `list_tasks` / `search` | Lọc việc theo tab, trạng thái, hôm nay, từ khoá |
+| `add_task` | Thêm việc, hiểu cả cú pháp gõ nhanh (`#goals !! @mai @15h`) |
+| `update_task` | Hoàn thành, đổi tên, chuyển tab, đổi hạn, ưu tiên, ghi chú |
+| `delete_task` | Xoá việc |
+| `list_notes` / `add_note` / `update_note` / `delete_note` | Đọc, tạo, sửa, ghim, xoá ghi chú |
+
+Thử hỏi: *"Hôm nay tôi còn việc gì?"*, *"Thêm 'gửi báo cáo' vào Goals hạn mai 3h chiều"*, *"Tick xong việc review PR"*.
+
 ## Phát triển
 ```bash
 swift build && .build/debug/Ghim                 # chạy bản debug
@@ -47,7 +73,8 @@ Code chính trong `Sources/Ghim/`:
 - `PanelController.swift` — cửa sổ cạnh màn hình, mở/thu gọn, độ mờ, kéo giãn
 - `RootView.swift` — dải tab · `ContentPanel.swift` — panel nội dung
 - `TaskViews.swift`, `OtherViews.swift`, `NoteImages.swift` — việc, Hôm nay, ghi chú, ảnh
-- `Store.swift`, `Models.swift` — dữ liệu & lưu JSON · `QuickParser.swift` — cú pháp gõ nhanh
+- `Store.swift`, `Models.swift`, `DataFile.swift` — dữ liệu & lưu JSON · `QuickParser.swift` — cú pháp gõ nhanh
+- `MCPServer.swift` — MCP server cho AI (`Ghim --mcp`)
 
 Cứ fork và sửa thoải mái. Pull request luôn được chào đón 🙌
 
